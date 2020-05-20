@@ -41,6 +41,7 @@ const unsigned long win_max_running_time = 30000; // 30s
 // MESSAGE buffer used to delay writing to serial, which is slow
 
 String messages[window_count];
+String commande;
 const String NULL_STRING = String("NULL_STRING");
 
 // ****************************************************************************
@@ -87,6 +88,8 @@ void setup() {
 // ****************************************************************************
 void loop() {
 
+
+    
   // --------------------------------------------------------------------------
   // Stop motors after timeout
 
@@ -97,7 +100,7 @@ void loop() {
     if (win_status[i] != 0 &&
         digitalRead(win_action_pins[i]) == HIGH &&
         win_started_at[i] + win_max_running_time <= millis()) {
-      messages[i] = "msg : Window " + String(i) + " timeout --> stopping motor.";
+      messages[i] = "msg : Window " + String(i+1) + " timeout --> stopping motor.";
       digitalWrite(win_action_pins[i], LOW);
       digitalWrite(win_direction_pins[i], LOW);
     }
@@ -119,7 +122,7 @@ void loop() {
         digitalRead(win_action_pins[i]) == HIGH &&
         digitalRead(win_direction_pins[i]) == LOW &&
         digitalRead(win_opened_pins[i]) == LOW) {
-      messages[i] = "msg : Window " + String(i) + " fully opened --> stopping motor.";
+      messages[i] = "msg : Window " + String(i+1) + " fully opened --> stopping motor.";
       digitalWrite(win_action_pins[i], LOW);
       digitalWrite(win_direction_pins[i], LOW);
     }
@@ -141,7 +144,7 @@ void loop() {
         digitalRead(win_action_pins[i]) == HIGH &&
         digitalRead(win_direction_pins[i]) == HIGH &&
         digitalRead(win_closed_pins[i]) == LOW) {
-      messages[i] = "msg : Window " + String(i) + " fully closed --> stopping motor.";
+      messages[i] = "msg : Window " + String(i+1) + " fully closed --> stopping motor.";
       digitalWrite(win_action_pins[i], LOW);
       digitalWrite(win_direction_pins[i], LOW);
     }
@@ -170,11 +173,34 @@ void loop() {
     Serial.println("msg : Failed to read from DHT sensor!");
     return;
   }
+
+  if(Serial.available()){
+      commande = Serial.readStringUntil('\n'); 
+      Serial.println("Commande : " + commande);
+  }
+  
+  if (commande.equals("test")) {
+    Serial.println("Test ok !!");
+  }
+  
+  if (commande.equals("ouvert")) {
+    Serial.println("Ouverture");
+    current_temperature = 26;
+  }
+  
+  if (commande.equals("ferme")) {
+    Serial.println("Fermeture");
+    current_temperature = 24;
+  } 
+  
   Serial.print("state : " + String(current_temperature) + " " + String(current_humidity));
   FOR_EACH_WINDOW {
-      Serial.print(" "+String(digitalRead(win_action_pins[i]))+String(digitalRead(win_direction_pins[i]))+String(digitalRead(win_opened_pins[i]))+String(digitalRead(win_closed_pins[i])));
+      Serial.print(" "+ String(i+1)+":"+String(digitalRead(win_action_pins[i]))+String(digitalRead(win_direction_pins[i]))+String(digitalRead(win_opened_pins[i]))+String(digitalRead(win_closed_pins[i])));
   }
-  Serial.println("");
+
+  Serial.print("\n");
+
+
 
   // --------------------------------------------------------------------------
   // Open windows when temperature is high
@@ -187,10 +213,11 @@ void loop() {
     FOR_EACH_WINDOW {
       if (win_status[i] != 1 && digitalRead(win_opened_pins[i]) != LOW) {
         win_status[i] = 1;
-        messages[i] = "msg : OPENING window " + String(i);
+        messages[i] = "msg : OPENING window " + String(i+1);
         digitalWrite(win_direction_pins[i], LOW);
         digitalWrite(win_action_pins[i], HIGH);
         win_started_at[i] = millis();
+        delay(500);
       }
     }
     FOR_EACH_WINDOW {
@@ -212,10 +239,11 @@ void loop() {
     FOR_EACH_WINDOW {
       if (win_status[i] != -1 && digitalRead(win_closed_pins[i]) != LOW) {
         win_status[i] = -1;
-        messages[i] = "msg : CLOSING window " + String(i);
+        messages[i] = "msg : CLOSING window " + String(i+1);
         digitalWrite(win_direction_pins[i], HIGH);
         digitalWrite(win_action_pins[i], HIGH);
         win_started_at[i] = millis();
+        delay(500);
       }
     }
     FOR_EACH_WINDOW {
@@ -236,7 +264,7 @@ void loop() {
   FOR_EACH_WINDOW {
     if (win_status[i] != 0) {
       win_status[i] = 0;
-      messages[i] = "msg : STOPPING window " + String(i);
+      messages[i] = "msg : STOPPING window " + String(i+1);
       digitalWrite(win_action_pins[i], LOW);
       digitalWrite(win_direction_pins[i], LOW);
     }

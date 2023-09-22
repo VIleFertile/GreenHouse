@@ -1,0 +1,215 @@
+
+// REVUE PROGRAMME INITIAL - pour reduction 1 fen
+// (Open or close all 8 green house windows when internal temperature is higher
+// or lower than a fixed threshold)
+
+// History:
+// 2016-04-01 Yoann Aubineau - Initial program
+// 2016-08-16 Yoann Aubineau - Code cleanup before pushing to Github
+// 2019-12-27 Nicolas Leroy - Humidity and state readings added
+// 2023-09-09 Vanessa Mariotto -Sauvegarde d'une reduction du code en preparation fenetre unitaire et passage ESP32
+// juste passe en compil, voir a quoi sert l'humidité 
+
+#include "DHT.h"
+
+// ****************************************************************************
+// 
+
+const int win_direction_pins = 22;
+const int win_action_pins = 38;
+const int win_opened_pins = 39;
+const int win_closed_pins = 23;
+int win_status = 0;
+unsigned long win_started_at = 0;
+/*
+*/
+const unsigned long win_max_running_time = 30000; // 30s
+
+// ****************************************************************************
+// MESSAGE buffer used to delay writing to serial, which is slow
+
+String messages;
+const String NULL_STRING = String("NULL_STRING");
+
+// ****************************************************************************
+// TEMPERATURE
+
+const int SENSOR_PIN = A0;
+const int SENSOR_TYPE = DHT22;
+DHT dht(SENSOR_PIN, SENSOR_TYPE);
+
+const float temperature_threshold = 25.0;
+const float threshold_margin = 1.5;
+const float high_temperature_threshold = temperature_threshold + threshold_margin;
+const float low_temperature_threshold = temperature_threshold - threshold_margin;
+
+unsigned long temperature_last_read_at = 0;
+const int temperature_read_interval = 3000;
+
+// ****************************************************************************
+// BOARD LED
+
+#define BOARD_LED_INIT digitalWrite(13, LOW); pinMode(13, OUTPUT);
+#define BOARD_LED_ON digitalWrite(13, HIGH);
+#define BOARD_LED_OFF digitalWrite(13, LOW);
+
+// ****************************************************************************
+void setup() {
+
+  BOARD_LED_INIT
+  Serial.begin(9600);
+  Serial.flush();
+  dht.begin();
+  digitalWrite(win_direction_pins, LOW);
+  digitalWrite(win_action_pins, LOW);
+  pinMode(win_direction_pins, OUTPUT);
+  pinMode(win_action_pins, OUTPUT);
+  pinMode(win_opened_pins, INPUT_PULLUP);
+  pinMode(win_closed_pins, INPUT_PULLUP);
+  win_status = 0;
+  
+}
+
+// ****************************************************************************
+void loop() {
+
+  // --------------------------------------------------------------------------
+  // Stop motors after timeout
+
+  messages = NULL_STRING;
+  
+ if (win_status != 0 &&
+   digitalRead(win_action_pins) == HIGH &&
+   win_started_at + win_max_running_time <= millis()) {
+   messages = "msg : Window timeout --> stopping motor.";
+   digitalWrite(win_action_pins, LOW);
+   digitalWrite(win_direction_pins, LOW);
+  }
+  
+  if (messages!= NULL_STRING) {
+    Serial.println(messages);
+  }
+  
+
+  // --------------------------------------------------------------------------
+  // Stop motors when windows are fully opened
+
+  messages = NULL_STRING;
+  
+  if (win_status == 1 &&
+     digitalRead(win_action_pins) == HIGH &&
+     digitalRead(win_direction_pins) == LOW &&
+     digitalRead(win_opened_pins) == LOW) {
+     messages = "msg : Window fully opened --> stopping motor.";
+     digitalWrite(win_action_pins, LOW);
+     digitalWrite(win_direction_pins, LOW);
+  }
+  
+  if (messages != NULL_STRING) {
+      Serial.println(messages);
+  }
+
+  // --------------------------------------------------------------------------
+  // Stop motors when windows are fully closed
+  messages = NULL_STRING;
+  if (win_status == -1 &&
+     digitalRead(win_action_pins) == HIGH &&
+     digitalRead(win_direction_pins) == HIGH &&
+     digitalRead(win_closed_pins) == LOW) {
+     messages = "msg : Window fully closed --> stopping motor.";
+     digitalWrite(win_action_pins, LOW);
+     digitalWrite(win_direction_pins, LOW);
+  }
+
+
+  if (messages != NULL_STRING) {
+     Serial.println(messages);
+  }
+
+  // --------------------------------------------------------------------------
+  // Read temperature at fixed interval
+
+  unsigned long current_timestamp = millis();
+  if (temperature_last_read_at + temperature_read_interval > current_timestamp) {
+    return;
+  }
+  float current_temperature = dht.readTemperature();
+  float current_humidity = dht.readHumidity();
+
+  //float current_temperature = 23;
+  //float current_humidity = 75;  
+
+  temperature_last_read_at = current_timestamp;
+  if (isnan(current_temperature)) {
+    Serial.println("msg : Failed to read from DHT sensor!");
+    return;
+  }
+  Serial.print("state : " + String(current_temperature) + " " + String(current_humidity));
+  Serial.print(" "+String(digitalRead(win_action_pins))+String(digitalRead(win_direction_pins))+String(digitalRead(win_opened_pins))+String(digitalRead(win_closed_pins)));
+  Serial.println("");
+
+  // --------------------------------------------------------------------------
+  // Open windows when temperature is high
+
+  if (current_temperature > high_temperature_threshold) {
+    BOARD_LED_ON
+    messages = NULL_STRING;
+    if (win_status != 1 && digitalRead(win_opened_pins) != LOW) {
+        win_status = 1;
+        messages = "msg : OPENING window " ;
+        digitalWrite(win_direction_pins, LOW);
+        digitalWrite(win_action_pins, HIGH);
+        win_started_at = millis();
+        Serialpln ();
+    }
+        
+    return;
+  }
+
+  // --------------------------------------------------------------------------
+  // Close windows when temperature is low
+
+  if (current_temperature < low_temperature_threshold) {
+    BOARD_LED_OFF
+  
+    messages = NULL_STRING;
+   
+    if (win_status != -1 && digitalRead(win_closed_pins) != LOW) {
+      win_status = -1;
+      messages = "msg : CLOSING window " ;
+      digitalWrite(win_direction_pins, HIGH);
+      digitalWrite(win_action_pins, HIGH);
+      win_started_at = millis();
+    }
+    Serialpln ();
+   
+    return;
+  }
+
+  // --------------------------------------------------------------------------
+  // Stop windows otherwise
+
+  BOARD_LED_OFF
+  messages = NULL_STRING;
+ 
+  if (win_status != 0) {
+    win_status = 0;
+    messages = "msg : STOPPING window " ;
+    digitalWrite(win_action_pins, LOW);
+    digitalWrite(win_direction_pins, LOW);
+    Serialpln ();
+  }
+  
+ 
+}
+
+
+
+// function to embed serial print and comment when not debugging
+void Serialpln () {
+
+  if (messages != NULL_STRING) {
+      Serial.println(messages);
+    }
+
+} 
